@@ -1,0 +1,22 @@
+# sb-converter.yaml
+# Default sync profile — used when no --profile is specified.
+
+default:
+  from: _data/Sample-quiver.qvlibrary
+  to: _output
+  delete_missing: false
+
+# Named profiles — select with: sb-converter --profile <name>
+
+profiles:
+  work:
+    from: /path/to/work.qvlibrary
+    to: /path/to/obsidian-vault
+    delete_missing: true
+
+  archive:
+    from: /path/to/archive.qvlibrary
+    to: /path/to/archive-vault
+    from_format: quiver
+    to_format: markdown
+    delete_missing: false

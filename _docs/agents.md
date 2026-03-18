@@ -29,6 +29,7 @@ sb-converter/
 │   └── Sample-quiver.qvlibrary/   # Real sample input for development
 └── _docs/
     ├── agents.md                   # This file
+    ├── configuration.md            # CLI parameters, config file & profiles
     ├── quiver-format.md            # Quiver format specification
     └── guide-add-new-providers.md  # How to add a new provider
 ```
@@ -98,10 +99,12 @@ Each rendered `.md` file contains:
 
 ## How It Works
 
-1. `main.rs` instantiates a source `Provider` and a destination `Provider`.
-2. Calls `src.read_notes()` → `Vec<Note>`.
-3. For each note calls `dst.write_note(&note)`.
-4. The destination provider handles differential sync internally.
+1. `main.rs` resolves config: merges config file profile → env vars → CLI flags.
+2. Instantiates source and destination `Provider`s (auto-detected or explicit).
+3. Calls `src.read_notes()` → `Vec<Note>`.
+4. For each note calls `dst.write_note(&note)`.
+5. If `--delete-missing`: computes the set of destination pages not present in source and removes them.
+6. The destination provider handles differential sync internally (skips unchanged notes).
 
 ## Tech Stack
 
@@ -112,5 +115,6 @@ Each rendered `.md` file contains:
 
 ## Reference
 
+- See `_docs/configuration.md` for CLI parameters, config file format, and profiles.
 - See `_docs/quiver-format.md` for a full description of the Quiver file format.
 - See `_docs/guide-add-new-providers.md` for instructions on adding a new provider.
