@@ -135,9 +135,70 @@ impl QuiverProvider {
     }
 }
 
+impl QuiverProvider {
+    /// Resolve or create a notebook directory for the given logical name.
+    /// Reuses an existing notebook with the same name, or creates a new one with a fresh UUID.
+    fn notebook_dir_for(&self, name: &str) -> PathBuf {
+        // check existing notebooks
+        if let Ok(entries) = fs::read_dir(&self.lib_path) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if p.extension().and_then(|e| e.to_str()) == Some("qvnotebook") {
+                    if let Ok(s) = fs::read_to_string(p.join("meta.json")) {
+                        if let Ok(m) = serde_json::from_str::<NotebookMeta>(&s) {
+                            if m.name == name {
+                                return p;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // create new notebook
+        let uuid = new_uuid();
+        let nb_dir = self.lib_path.join(format!("{uuid}.qvnotebook"));
+        fs::create_dir_all(&nb_dir).unwrap();
+        fs::write(nb_dir.join("meta.json"),
+            serde_json::to_string(&json!({ "name": name, "uuid": uuid })).unwrap()
+        ).unwrap();
+        self.update_lib_meta(&uuid);
+        nb_dir
+    }
+
+    /// Add a notebook UUID to the library meta.json if not already present.
+    fn update_lib_meta(&self, uuid: &str) {
+        let meta_path = self.lib_path.join("meta.json");
+        let mut meta: serde_json::Value = fs::read_to_string(&meta_path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_else(|| json!({ "uuid": "library", "children": [] }));
+
+        let children = meta["children"].as_array_mut().unwrap();
+        if !children.iter().any(|c| c["uuid"] == uuid) {
+            children.push(json!({ "uuid": uuid }));
+        }
+        fs::write(&meta_path, serde_json::to_string_pretty(&meta).unwrap()).unwrap();
+    }
+}
+
+fn new_uuid() -> String {
+    // simple UUID v4-like from random bytes via std
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    use std::time::SystemTime;
+    let mut h = DefaultHasher::new();
+    SystemTime::now().hash(&mut h);
+    std::thread::current().id().hash(&mut h);
+    format!("{:016X}-{:04X}-{:04X}-{:04X}-{:012X}",
+        h.finish(), h.finish() >> 16 & 0xffff,
+        0x4000 | (h.finish() >> 12 & 0x0fff),
+        0x8000 | (h.finish() >> 14 & 0x3fff),
+        h.finish() & 0xffffffffffff)
+}
+
 impl Provider for QuiverProvider {
     fn name(&self) -> &str { "quiver" }
-    fn readonly(&self) -> bool { true }
+    fn readonly(&self) -> bool { false }
 
     fn read_notes(&self) -> Vec<Note> {
         let lib_meta: LibMeta = serde_json::from_str(
@@ -147,5 +208,60 @@ impl Provider for QuiverProvider {
         let mut notes = Vec::new();
         self.walk(&lib_meta.children, &names, "", &mut notes);
         notes
+    }
+
+    fn write_note(&self, note: &Note) {
+        fs::create_dir_all(&self.lib_path).unwrap();
+
+        // ensure library meta.json exists
+        let lib_meta_path = self.lib_path.join("meta.json");
+        if !lib_meta_path.exists() {
+            let lib_name = self.lib_path.file_stem().unwrap().to_string_lossy();
+            fs::write(&lib_meta_path,
+                serde_json::to_string(&json!({ "uuid": lib_name, "children": [] })).unwrap()
+            ).unwrap();
+        }
+
+        // top-level notebook name (first path segment)
+        let notebook_name = note.path.split('/').next().unwrap_or(&note.path);
+        let nb_dir = self.notebook_dir_for(notebook_name);
+
+        // reuse existing note UUID if present in custom_data
+        let uuid = note.custom_data.get("uuid")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or_else(new_uuid);
+
+        let note_dir = nb_dir.join(format!("{uuid}.qvnote"));
+        fs::create_dir_all(&note_dir).unwrap();
+
+        // meta.json — skip rewrite if updated_at unchanged
+        let meta_path = note_dir.join("meta.json");
+        let existing_ts: Option<u64> = fs::read_to_string(&meta_path).ok()
+            .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+            .and_then(|v| v["updated_at"].as_u64());
+        if existing_ts == Some(note.updated_at) { return; }
+
+        let meta = json!({
+            "title": note.title,
+            "tags": note.tags,
+            "updated_at": note.updated_at,
+            "created_at": note.updated_at,
+            "uuid": uuid,
+        });
+        fs::write(&meta_path, serde_json::to_string_pretty(&meta).unwrap()).unwrap();
+
+        // content.json
+        let cells: Vec<serde_json::Value> = note.cells.iter().map(|c| match &c.kind {
+            CellKind::Code { language } => json!({ "type": "code", "language": language, "data": c.data }),
+            CellKind::Text    => json!({ "type": "text",    "data": c.data }),
+            CellKind::Latex   => json!({ "type": "latex",   "data": c.data }),
+            CellKind::Diagram => json!({ "type": "diagram", "data": c.data }),
+            CellKind::Markdown => json!({ "type": "markdown", "data": c.data }),
+            CellKind::Other(t) => json!({ "type": t, "data": c.data }),
+        }).collect();
+
+        let content = json!({ "title": note.title, "cells": cells });
+        fs::write(note_dir.join("content.json"), serde_json::to_string_pretty(&content).unwrap()).unwrap();
     }
 }

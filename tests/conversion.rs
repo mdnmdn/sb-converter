@@ -53,9 +53,9 @@ fn quiver_reads_notes() {
 }
 
 #[test]
-fn quiver_is_readonly() {
+fn quiver_is_not_readonly() {
     let provider = QuiverProvider::new("tests/fixtures/quiver/TEST.qvlibrary");
-    assert!(provider.readonly());
+    assert!(!provider.readonly());
 }
 
 #[test]
@@ -63,6 +63,116 @@ fn quiver_custom_data_has_uuid() {
     let provider = QuiverProvider::new("tests/fixtures/quiver/TEST.qvlibrary");
     let notes = provider.read_notes();
     assert_eq!(notes[0].custom_data["uuid"], "NOTE-UUID");
+}
+
+// --- quiver write tests ---
+
+#[test]
+fn quiver_write_creates_note_files() {
+    let tmp = tempfile::tempdir().unwrap();
+    let lib = tmp.path().join("OUT.qvlibrary");
+    let provider = QuiverProvider::new(&lib);
+    provider.write_note(&sample_note());
+
+    // find the single .qvnote directory
+    let nb = std::fs::read_dir(&lib).unwrap()
+        .flatten()
+        .find(|e| e.path().extension().and_then(|x| x.to_str()) == Some("qvnotebook"))
+        .expect("notebook dir");
+    let note_dir = std::fs::read_dir(nb.path()).unwrap()
+        .flatten()
+        .find(|e| e.path().extension().and_then(|x| x.to_str()) == Some("qvnote"))
+        .expect("note dir");
+
+    assert!(note_dir.path().join("meta.json").exists());
+    assert!(note_dir.path().join("content.json").exists());
+}
+
+#[test]
+fn quiver_write_meta_fields() {
+    let tmp = tempfile::tempdir().unwrap();
+    let lib = tmp.path().join("OUT.qvlibrary");
+    let provider = QuiverProvider::new(&lib);
+    provider.write_note(&sample_note());
+
+    let nb = std::fs::read_dir(&lib).unwrap().flatten()
+        .find(|e| e.path().extension().and_then(|x| x.to_str()) == Some("qvnotebook")).unwrap();
+    let note_dir = std::fs::read_dir(nb.path()).unwrap().flatten()
+        .find(|e| e.path().extension().and_then(|x| x.to_str()) == Some("qvnote")).unwrap();
+
+    let meta: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(note_dir.path().join("meta.json")).unwrap()
+    ).unwrap();
+    assert_eq!(meta["title"], "Test Note");
+    assert_eq!(meta["updated_at"], 1713368127u64);
+    assert_eq!(meta["tags"][0], "rust");
+}
+
+#[test]
+fn quiver_write_content_cells() {
+    let tmp = tempfile::tempdir().unwrap();
+    let lib = tmp.path().join("OUT.qvlibrary");
+    let provider = QuiverProvider::new(&lib);
+    provider.write_note(&sample_note());
+
+    let nb = std::fs::read_dir(&lib).unwrap().flatten()
+        .find(|e| e.path().extension().and_then(|x| x.to_str()) == Some("qvnotebook")).unwrap();
+    let note_dir = std::fs::read_dir(nb.path()).unwrap().flatten()
+        .find(|e| e.path().extension().and_then(|x| x.to_str()) == Some("qvnote")).unwrap();
+
+    let content: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(note_dir.path().join("content.json")).unwrap()
+    ).unwrap();
+    let cells = content["cells"].as_array().unwrap();
+    assert_eq!(cells.len(), 3);
+    assert_eq!(cells[1]["type"], "code");
+    assert_eq!(cells[1]["language"], "rust");
+    assert_eq!(cells[1]["data"], "fn main() {}");
+}
+
+#[test]
+fn quiver_write_skips_unchanged() {
+    let tmp = tempfile::tempdir().unwrap();
+    let lib = tmp.path().join("OUT.qvlibrary");
+    let provider = QuiverProvider::new(&lib);
+    let note = sample_note();
+    provider.write_note(&note);
+
+    // find meta.json and record mtime
+    let nb = std::fs::read_dir(&lib).unwrap().flatten()
+        .find(|e| e.path().extension().and_then(|x| x.to_str()) == Some("qvnotebook")).unwrap();
+    let note_dir = std::fs::read_dir(nb.path()).unwrap().flatten()
+        .find(|e| e.path().extension().and_then(|x| x.to_str()) == Some("qvnote")).unwrap();
+    let meta_path = note_dir.path().join("meta.json");
+    let mtime1 = std::fs::metadata(&meta_path).unwrap().modified().unwrap();
+
+    std::thread::sleep(std::time::Duration::from_millis(10));
+    provider.write_note(&note);
+    let mtime2 = std::fs::metadata(&meta_path).unwrap().modified().unwrap();
+    assert_eq!(mtime1, mtime2, "meta.json should not be rewritten when unchanged");
+}
+
+#[test]
+fn quiver_write_then_read_roundtrip() {
+    let tmp = tempfile::tempdir().unwrap();
+    let lib = tmp.path().join("OUT.qvlibrary");
+    let note = sample_note();
+
+    let writer = QuiverProvider::new(&lib);
+    writer.write_note(&note);
+
+    let reader = QuiverProvider::new(&lib);
+    let notes = reader.read_notes();
+    assert_eq!(notes.len(), 1);
+    let r = &notes[0];
+    assert_eq!(r.title, note.title);
+    assert_eq!(r.tags, note.tags);
+    assert_eq!(r.updated_at, note.updated_at);
+    assert_eq!(r.cells.len(), note.cells.len());
+    for (o, w) in note.cells.iter().zip(r.cells.iter()) {
+        assert_eq!(std::mem::discriminant(&o.kind), std::mem::discriminant(&w.kind));
+        assert_eq!(o.data, w.data);
+    }
 }
 
 // --- markdown render tests ---
