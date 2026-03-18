@@ -1,5 +1,9 @@
-use std::{collections::HashMap, fs, path::{Path, PathBuf}};
 use similar::{ChangeTag, TextDiff};
+use std::{
+    collections::HashMap,
+    fs,
+    path::{Path, PathBuf},
+};
 
 use crate::{
     model::{CellKind, Note, NoteCell},
@@ -12,12 +16,16 @@ pub struct MarkdownProvider {
 
 impl MarkdownProvider {
     pub fn new(out_dir: impl Into<PathBuf>) -> Self {
-        Self { out_dir: out_dir.into() }
+        Self {
+            out_dir: out_dir.into(),
+        }
     }
 }
 
 fn sanitize(s: &str) -> String {
-    s.chars().map(|c| if r#"/\:*?"<>|"#.contains(c) { '_' } else { c }).collect()
+    s.chars()
+        .map(|c| if r#"/\:*?"<>|"#.contains(c) { '_' } else { c })
+        .collect()
 }
 
 fn existing_updated_at(path: &std::path::Path) -> Option<u64> {
@@ -34,7 +42,9 @@ pub fn render_note(note: &Note) -> String {
     let mut md = String::from("---\n");
     if !note.tags.is_empty() {
         md.push_str("tags:");
-        for t in &note.tags { md.push_str(&format!("\n  - {t}")); }
+        for t in &note.tags {
+            md.push_str(&format!("\n  - {t}"));
+        }
         md.push('\n');
     }
     md.push_str(&format!("quiver_file: {}\n", note.source));
@@ -51,17 +61,18 @@ pub fn render_note(note: &Note) -> String {
 
     for (i, cell) in note.cells.iter().enumerate() {
         let kind_str = match &cell.kind {
-            CellKind::Markdown       => "markdown".to_string(),
-            CellKind::Code { .. }    => "code".to_string(),
-            CellKind::Text           => "text".to_string(),
-            CellKind::Latex          => "latex".to_string(),
-            CellKind::Diagram        => "diagram".to_string(),
-            CellKind::Other(s)       => s.clone(),
+            CellKind::Markdown => "markdown".to_string(),
+            CellKind::Code { .. } => "code".to_string(),
+            CellKind::Text => "text".to_string(),
+            CellKind::Latex => "latex".to_string(),
+            CellKind::Diagram => "diagram".to_string(),
+            CellKind::Other(s) => s.clone(),
         };
         md.push_str(&format!("<!-- cell: {kind_str}[{i}] -->\n"));
         let rendered = match &cell.kind {
-            CellKind::Code { language } =>
-                format!("```{language}\n{}\n```\n", cell.data.trim_end()),
+            CellKind::Code { language } => {
+                format!("```{language}\n{}\n```\n", cell.data.trim_end())
+            }
             _ => format!("{}\n", cell.data),
         };
         if !rendered.trim().is_empty() {
@@ -73,7 +84,9 @@ pub fn render_note(note: &Note) -> String {
 }
 
 fn needs_update(old: &str, new: &str) -> bool {
-    if old == new { return false; }
+    if old == new {
+        return false;
+    }
     TextDiff::from_lines(old, new)
         .iter_all_changes()
         .any(|c| c.tag() != ChangeTag::Equal)
@@ -81,17 +94,18 @@ fn needs_update(old: &str, new: &str) -> bool {
 
 /// Recursively collect all `.md` files under `dir` and parse them into `Note`s.
 fn collect_md_notes(root: &Path, dir: &Path, out: &mut Vec<Note>) {
-    let Ok(entries) = fs::read_dir(dir) else { return };
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
     for entry in entries.flatten() {
         let p = entry.path();
         if p.is_dir() {
             collect_md_notes(root, &p, out);
-        } else if p.extension().and_then(|e| e.to_str()) == Some("md") {
-            if let Ok(content) = fs::read_to_string(&p) {
-                if let Some(note) = parse_md_note(&content, root, &p) {
-                    out.push(note);
-                }
-            }
+        } else if p.extension().and_then(|e| e.to_str()) == Some("md")
+            && let Ok(content) = fs::read_to_string(&p)
+            && let Some(note) = parse_md_note(&content, root, &p)
+        {
+            out.push(note);
         }
     }
 }
@@ -116,27 +130,42 @@ pub fn parse_md_note(content: &str, root: &Path, file_path: &Path) -> Option<Not
             continue;
         }
         in_tags = false;
-        if line == "tags:" { in_tags = true; continue; }
-        if let Some(v) = line.strip_prefix("quiver_file: ")    { source = v.to_string(); }
-        if let Some(v) = line.strip_prefix("quiver_updated: ") { updated_at = v.trim().parse().unwrap_or(0); }
-        if let Some(v) = line.strip_prefix("quiver_path: ")    { path = v.to_string(); }
+        if line == "tags:" {
+            in_tags = true;
+            continue;
+        }
+        if let Some(v) = line.strip_prefix("quiver_file: ") {
+            source = v.to_string();
+        }
+        if let Some(v) = line.strip_prefix("quiver_updated: ") {
+            updated_at = v.trim().parse().unwrap_or(0);
+        }
+        if let Some(v) = line.strip_prefix("quiver_path: ") {
+            path = v.to_string();
+        }
     }
 
     // derive title from the `# Title` heading (first non-blank line after frontmatter)
-    let title = body.lines()
+    let title = body
+        .lines()
         .find(|l| l.starts_with("# "))
         .map(|l| l[2..].to_string())
         .unwrap_or_else(|| {
-            file_path.file_stem().unwrap_or_default().to_string_lossy().to_string()
+            file_path
+                .file_stem()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string()
         });
 
     // if path not in frontmatter, derive from relative dir
-    if path.is_empty() {
-        if let Some(parent) = file_path.parent() {
-            if let Ok(rel) = parent.strip_prefix(root) {
-                path = rel.to_string_lossy().replace(std::path::MAIN_SEPARATOR, "/");
-            }
-        }
+    if path.is_empty()
+        && let Some(parent) = file_path.parent()
+        && let Ok(rel) = parent.strip_prefix(root)
+    {
+        path = rel
+            .to_string_lossy()
+            .replace(std::path::MAIN_SEPARATOR, "/");
     }
 
     // --- parse cells using <!-- cell: kind[i] --> markers ---
@@ -155,13 +184,35 @@ pub fn parse_md_note(content: &str, root: &Path, file_path: &Path) -> Option<Not
 }
 
 /// Split body on `<!-- cell: kind[i] -->` markers and build `NoteCell`s.
+/// If no markers are present the entire body (minus the title heading) is
+/// treated as a single Markdown cell.  Consecutive Markdown cells are merged.
 fn regex_lite_find_cells(body: &str) -> Vec<NoteCell> {
-    let mut cells = Vec::new();
+    // If there are no markers, treat everything after the title as one markdown cell.
+    if !body.contains("<!-- cell: ") {
+        let text = body
+            .lines()
+            .skip_while(|l| l.starts_with("# ") || l.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n")
+            .trim()
+            .to_string();
+        return if text.is_empty() {
+            vec![]
+        } else {
+            vec![NoteCell {
+                kind: CellKind::Markdown,
+                data: text,
+            }]
+        };
+    }
+
+    let mut raw_cells: Vec<NoteCell> = Vec::new();
     let mut remaining = body;
 
     loop {
-        // find next marker
-        let Some(marker_start) = remaining.find("<!-- cell: ") else { break };
+        let Some(marker_start) = remaining.find("<!-- cell: ") else {
+            break;
+        };
         let marker_end = match remaining[marker_start..].find(" -->") {
             Some(o) => marker_start + o + 4,
             None => break,
@@ -169,7 +220,6 @@ fn regex_lite_find_cells(body: &str) -> Vec<NoteCell> {
         let marker = &remaining[marker_start + 11..marker_end - 4]; // "kind[i]"
         let kind_str = marker.split('[').next().unwrap_or("markdown");
 
-        // content is everything until the next marker (or end)
         let content_start = marker_end;
         let content_end = remaining[content_start..]
             .find("<!-- cell: ")
@@ -179,9 +229,7 @@ fn regex_lite_find_cells(body: &str) -> Vec<NoteCell> {
         let raw = remaining[content_start..content_end].trim();
 
         let (kind, data) = if kind_str == "code" {
-            // strip fenced block: ```lang\n...\n```
-            let inner = raw
-                .strip_prefix("```").unwrap_or(raw);
+            let inner = raw.strip_prefix("```").unwrap_or(raw);
             let lang_end = inner.find('\n').unwrap_or(0);
             let language = inner[..lang_end].to_string();
             let code = inner[lang_end..].trim_start_matches('\n');
@@ -190,26 +238,41 @@ fn regex_lite_find_cells(body: &str) -> Vec<NoteCell> {
         } else {
             let kind = match kind_str {
                 "markdown" => CellKind::Markdown,
-                "text"     => CellKind::Text,
-                "latex"    => CellKind::Latex,
-                "diagram"  => CellKind::Diagram,
-                other      => CellKind::Other(other.to_string()),
+                "text" => CellKind::Text,
+                "latex" => CellKind::Latex,
+                "diagram" => CellKind::Diagram,
+                other => CellKind::Other(other.to_string()),
             };
             (kind, raw.to_string())
         };
 
         if !data.is_empty() {
-            cells.push(NoteCell { kind, data });
+            raw_cells.push(NoteCell { kind, data });
         }
 
         remaining = &remaining[content_end..];
     }
 
+    // Merge consecutive Markdown cells (handles files edited without markers).
+    let mut cells: Vec<NoteCell> = Vec::new();
+    for cell in raw_cells {
+        if cell.kind == CellKind::Markdown
+            && let Some(last) = cells.last_mut()
+            && last.kind == CellKind::Markdown
+        {
+            last.data.push_str("\n\n");
+            last.data.push_str(&cell.data);
+            continue;
+        }
+        cells.push(cell);
+    }
     cells
 }
 
 impl Provider for MarkdownProvider {
-    fn name(&self) -> &str { "obsidian-markdown" }
+    fn name(&self) -> &str {
+        "obsidian-markdown"
+    }
 
     fn read_notes(&self) -> Vec<Note> {
         let mut notes = Vec::new();
@@ -223,15 +286,19 @@ impl Provider for MarkdownProvider {
         let out_path = note_dir.join(format!("{}.md", sanitize(&note.title)));
 
         // fast-path: timestamp unchanged
-        if let Some(ts) = existing_updated_at(&out_path) {
-            if ts == note.updated_at { return; }
+        if let Some(ts) = existing_updated_at(&out_path)
+            && ts == note.updated_at
+        {
+            return;
         }
 
         let new_md = render_note(note);
 
         if out_path.exists() {
             let old_md = fs::read_to_string(&out_path).unwrap_or_default();
-            if !needs_update(&old_md, &new_md) { return; }
+            if !needs_update(&old_md, &new_md) {
+                return;
+            }
         }
 
         fs::write(&out_path, &new_md).unwrap();

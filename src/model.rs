@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use serde_json::Value;
+use std::collections::HashMap;
 
 /// The kind of a cell in a note.
 #[derive(Debug, Clone, PartialEq)]

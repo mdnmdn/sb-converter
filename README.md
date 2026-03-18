@@ -1,6 +1,6 @@
 # sb-converter — Second Brain Converter
 
-A CLI tool written in Rust that converts between note formats using a provider abstraction. Currently supports [Quiver](https://yliansoft.com/) `.qvlibrary` as source and [Obsidian](https://obsidian.md/)-compatible Markdown as destination.
+A CLI tool written in Rust that converts between note formats. Currently supports [Quiver](https://yliansoft.com/) `.qvlibrary` as source and [Obsidian](https://obsidian.md/)-compatible Markdown as destination.
 
 ## Quick Start
 
@@ -38,7 +38,7 @@ Full CLI reference: [`_docs/configuration.md`](_docs/configuration.md)
 
 | Format | Read | Write |
 |---|---|---|
-| Quiver (`.qvlibrary`) | ✅ | — |
+| Quiver (`.qvlibrary`) | ✅ | ✅ |
 | Obsidian Markdown | ✅ | ✅ |
 
 ## License
